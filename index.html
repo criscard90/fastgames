@@ -123,6 +123,10 @@
       filter: blur(4px);
     }
 
+    .game-card-score::after {
+      background: rgba(16, 185, 129, 0.3);
+    }
+
     .game-card:hover,
     .game-card:focus-visible {
       transform: translateY(-4px);
@@ -274,6 +278,94 @@
       box-shadow: 0 10px 30px rgba(0,0,0,0.5);
     }
 
+    .score-board {
+      display: none;
+      width: min(100%, 500px);
+      padding: 24px 18px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 24px;
+      background: var(--card-bg);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    }
+
+    .score-board.visible {
+      display: block;
+    }
+
+    .score-board-heading {
+      margin-bottom: 20px;
+      color: #94a3b8;
+      font-size: 0.78rem;
+      font-weight: 800;
+      letter-spacing: 0.14em;
+      text-align: center;
+      text-transform: uppercase;
+    }
+
+    .score-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .score-player {
+      padding: 18px 12px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 16px;
+      text-align: center;
+    }
+
+    .score-player-label {
+      color: #cbd5e1;
+      font-size: 0.9rem;
+      font-weight: 600;
+    }
+
+    .score-value {
+      margin-top: 4px;
+      font-size: 3.5rem;
+      font-weight: 800;
+      line-height: 1;
+    }
+
+    .score-value.p1 { color: var(--p1-color); }
+    .score-value.p2 { color: var(--p2-color); }
+
+    .action-choice {
+      display: none;
+      grid-area: actions;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .action-choice.visible {
+      display: grid;
+    }
+
+    .action-button {
+      min-height: 44px;
+      padding: 8px 10px;
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: 14px;
+      background: rgba(51, 65, 85, 0.8);
+      color: #f8fafc;
+      font: inherit;
+      font-size: 0.85rem;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .action-button:hover:not(:disabled),
+    .action-button:focus-visible:not(:disabled) {
+      border-color: var(--accent-color);
+      outline: none;
+    }
+
+    .action-button:disabled {
+      cursor: not-allowed;
+      opacity: 0.35;
+    }
+
     .controls {
       width: 100%;
       max-width: 500px;
@@ -282,6 +374,7 @@
       grid-template-areas:
         "dice turn"
         "log log"
+        "actions actions"
         "button button";
       align-items: center;
       gap: 2px 12px;
@@ -365,6 +458,11 @@
       text-align: center;
     }
 
+    #actionChoice {
+      width: 100%;
+      max-width: 500px;
+    }
+
     .btn-roll {
       grid-area: button;
     }
@@ -426,6 +524,12 @@
         <p>Una sfida a due tra bonus, malus e lanci di dado.</p>
         <span class="game-card-cta">Gioca ora →</span>
       </button>
+      <button class="game-card game-card-score" id="scoreGameCard" type="button">
+        <span class="game-card-icon" aria-hidden="true">21</span>
+        <h2>Ventuno a scelta</h2>
+        <p>Porta il tuo punteggio esattamente a 21, o rallenta l’avversario.</p>
+        <span class="game-card-cta">Gioca ora →</span>
+      </button>
     </div>
   </main>
 
@@ -437,6 +541,19 @@
 
     <div class="board-container">
       <canvas id="boardCanvas" width="800" height="800"></canvas>
+      <section class="score-board" id="scoreBoard" aria-label="Punteggi della partita">
+        <div class="score-board-heading">Primo a 21, senza superare</div>
+        <div class="score-grid">
+          <div class="score-player">
+            <div class="score-player-label">Giocatore 1</div>
+            <div class="score-value p1" id="scoreOne">0</div>
+          </div>
+          <div class="score-player">
+            <div class="score-player-label">Giocatore 2</div>
+            <div class="score-value p2" id="scoreTwo">0</div>
+          </div>
+        </div>
+      </section>
     </div>
 
     <div class="controls">
@@ -452,6 +569,10 @@
         </div>
       </div>
       <div id="log">Tocca il dado o il pulsante per tirare!</div>
+      <div class="action-choice" id="actionChoice">
+        <button class="action-button" id="addAction" type="button">+ A me</button>
+        <button class="action-button" id="subtractAction" type="button">- Al rivale</button>
+      </div>
       <button class="btn-roll" id="rollBtn">LANCIA IL DADO</button>
     </div>
 
@@ -468,9 +589,12 @@
     // --- STATO DI GIOCO ---
     const TOTAL_TILES = 30;
     let playerPositions = [0, 0];
+    let scores = [0, 0];
     let currentPlayer = 0;
     let tiles = [];
     let isRolling = false;
+    let gameMode = 'spiral';
+    let pendingScoreRoll = null;
 
     const playerColors = ['#ef4444', '#3b82f6'];
     const playerGlows = ['rgba(239, 68, 68, 0.6)', 'rgba(59, 130, 246, 0.6)'];
@@ -807,6 +931,14 @@
     // --- LOGICA DEL GIOCO ---
     const rollBtn = document.getElementById('rollBtn');
     const logEl = document.getElementById('log');
+    const actionChoice = document.getElementById('actionChoice');
+    const addAction = document.getElementById('addAction');
+    const subtractAction = document.getElementById('subtractAction');
+
+    function updateScores() {
+      document.getElementById('scoreOne').innerText = scores[0];
+      document.getElementById('scoreTwo').innerText = scores[1];
+    }
 
     function updateTurnUI() {
       const dot = document.getElementById('turnDot');
@@ -818,6 +950,12 @@
 
     function handleTurn() {
       if (isRolling) return;
+
+      if (gameMode === 'score') {
+        handleScoreRoll();
+        return;
+      }
+
       isRolling = true;
       rollBtn.disabled = true;
 
@@ -842,6 +980,55 @@
           });
         }
       });
+    }
+
+    function handleScoreRoll() {
+      isRolling = true;
+      rollBtn.disabled = true;
+      actionChoice.classList.remove('visible');
+
+      const diceResult = Math.floor(Math.random() * 6) + 1;
+      pendingScoreRoll = diceResult;
+      logEl.innerText = `Giocatore ${currentPlayer + 1} sta lanciando...`;
+
+      rollDice3D(diceResult, () => {
+        const canAdd = scores[currentPlayer] + diceResult <= 21;
+        addAction.disabled = !canAdd;
+        subtractAction.disabled = false;
+        actionChoice.classList.add('visible');
+        logEl.innerText = canAdd
+          ? `È uscito ${diceResult}: scegli dove usarlo.`
+          : `È uscito ${diceResult}: non puoi superare 21, scegli il malus.`;
+      });
+    }
+
+    function applyScoreAction(action) {
+      if (pendingScoreRoll === null) return;
+
+      const diceResult = pendingScoreRoll;
+      const opponent = currentPlayer === 0 ? 1 : 0;
+      if (action === 'add') {
+        if (scores[currentPlayer] + diceResult > 21) return;
+        scores[currentPlayer] += diceResult;
+        logEl.innerText = `+${diceResult} al punteggio del Giocatore ${currentPlayer + 1}.`;
+      } else {
+        scores[opponent] = Math.max(0, scores[opponent] - diceResult);
+        logEl.innerText = `-${diceResult} al punteggio del Giocatore ${opponent + 1}.`;
+      }
+
+      pendingScoreRoll = null;
+      actionChoice.classList.remove('visible');
+      updateScores();
+
+      if (scores[currentPlayer] === 21) {
+        showWinModal(currentPlayer + 1);
+        return;
+      }
+
+      currentPlayer = currentPlayer === 0 ? 1 : 0;
+      updateTurnUI();
+      isRolling = false;
+      rollBtn.disabled = false;
     }
 
     function resolveTileEffects(pIdx, callback, visitedTiles = new Set()) {
@@ -921,11 +1108,19 @@
 
     function resetGame() {
       playerPositions = [0, 0];
+      scores = [0, 0];
       currentPlayer = 0;
       isRolling = false;
+      pendingScoreRoll = null;
       rollBtn.disabled = false;
       document.getElementById('winModal').classList.remove('active');
-      logEl.innerText = "Nuova partita iniziata!";
+      actionChoice.classList.remove('visible');
+      addAction.disabled = false;
+      subtractAction.disabled = false;
+      logEl.innerText = gameMode === 'score'
+        ? 'Nuova partita: porta il tuo punteggio a 21!'
+        : 'Nuova partita iniziata!';
+      updateScores();
       generateBoardTiles();
       updateTurnUI();
       drawBoard();
@@ -935,14 +1130,22 @@
     const catalogView = document.getElementById('catalogView');
     const gameView = document.getElementById('gameView');
     const spiralGameCard = document.getElementById('spiralGameCard');
+    const scoreGameCard = document.getElementById('scoreGameCard');
     const backToCatalog = document.getElementById('backToCatalog');
 
     function showGame() {
       catalogView.style.display = 'none';
       gameView.style.display = 'flex';
+      document.querySelector('.game-name').innerText = gameMode === 'score'
+        ? 'Ventuno a scelta'
+        : 'Spirale Party 3D';
+      canvas.style.display = gameMode === 'score' ? 'none' : 'block';
+      document.getElementById('scoreBoard').classList.toggle('visible', gameMode === 'score');
       requestAnimationFrame(() => {
-        resizeCanvas();
-        computeSpiralPoints();
+        if (gameMode === 'spiral') {
+          resizeCanvas();
+          computeSpiralPoints();
+        }
         drawBoard();
       });
     }
@@ -954,7 +1157,18 @@
 
     rollBtn.addEventListener('click', handleTurn);
     diceContainer.addEventListener('click', handleTurn);
-    spiralGameCard.addEventListener('click', showGame);
+    addAction.addEventListener('click', () => applyScoreAction('add'));
+    subtractAction.addEventListener('click', () => applyScoreAction('subtract'));
+    spiralGameCard.addEventListener('click', () => {
+      gameMode = 'spiral';
+      resetGame();
+      showGame();
+    });
+    scoreGameCard.addEventListener('click', () => {
+      gameMode = 'score';
+      resetGame();
+      showGame();
+    });
     backToCatalog.addEventListener('click', showCatalog);
 
     window.addEventListener('resize', () => {
@@ -974,6 +1188,7 @@
 
     generateBoardTiles();
     init3DDice();
+    updateScores();
     updateTurnUI();
     showCatalog();
   </script>
